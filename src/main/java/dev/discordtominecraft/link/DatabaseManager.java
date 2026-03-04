@@ -1,6 +1,5 @@
 package dev.discordtominecraft.link;
 
-import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -13,37 +12,45 @@ import java.util.UUID;
 
 public class DatabaseManager {
     private final String jdbcUrl;
+    private final String username;
+    private final String password;
 
-    public DatabaseManager(File databaseFile) {
-        this.jdbcUrl = "jdbc:sqlite:" + databaseFile.getAbsolutePath();
+    public DatabaseManager(String host, int port, String databaseName, String username, String password) {
+        this.jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/" + databaseName
+                + "?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+        this.username = username;
+        this.password = password;
+    }
+
+    private Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(jdbcUrl, username, password);
     }
 
     public void init() throws SQLException {
-        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+        try (Connection connection = getConnection();
              Statement stmt = connection.createStatement()) {
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS links (
-                    minecraft_uuid TEXT PRIMARY KEY,
-                    discord_id TEXT NOT NULL,
-                    linked_at INTEGER NOT NULL
-                )
+                    minecraft_uuid VARCHAR(36) PRIMARY KEY,
+                    discord_id VARCHAR(32) NOT NULL,
+                    linked_at BIGINT NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """);
 
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS pending_codes (
-                    code TEXT PRIMARY KEY,
-                    minecraft_uuid TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL
-                )
+                    code VARCHAR(16) PRIMARY KEY,
+                    minecraft_uuid VARCHAR(36) NOT NULL,
+                    expires_at BIGINT NOT NULL,
+                    INDEX idx_pending_uuid (minecraft_uuid)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """);
-
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_pending_uuid ON pending_codes(minecraft_uuid)");
         }
     }
 
     public boolean isLinked(UUID uuid) {
         String sql = "SELECT 1 FROM links WHERE minecraft_uuid = ? LIMIT 1";
-        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+        try (Connection connection = getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
             try (ResultSet rs = ps.executeQuery()) {
@@ -56,7 +63,7 @@ public class DatabaseManager {
 
     public Optional<String> getPendingCode(UUID uuid) {
         String sql = "SELECT code, expires_at FROM pending_codes WHERE minecraft_uuid = ? LIMIT 1";
-        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+        try (Connection connection = getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
             try (ResultSet rs = ps.executeQuery()) {
@@ -78,9 +85,9 @@ public class DatabaseManager {
 
     public void saveCode(String code, UUID uuid, long expiresAt) throws SQLException {
         String deleteOld = "DELETE FROM pending_codes WHERE minecraft_uuid = ?";
-        String insert = "INSERT OR REPLACE INTO pending_codes(code, minecraft_uuid, expires_at) VALUES (?, ?, ?)";
+        String insert = "INSERT INTO pending_codes(code, minecraft_uuid, expires_at) VALUES (?, ?, ?)";
 
-        try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
+        try (Connection connection = getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement deletePs = connection.prepareStatement(deleteOld);
                  PreparedStatement insertPs = connection.prepareStatement(insert)) {
@@ -101,9 +108,55 @@ public class DatabaseManager {
         }
     }
 
+    public void linkDiscordAccount(String code, String discordId) throws SQLException {
+        String selectCode = "SELECT minecraft_uuid, expires_at FROM pending_codes WHERE code = ?";
+        String upsertLink = """
+            INSERT INTO links(minecraft_uuid, discord_id, linked_at)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE discord_id = VALUES(discord_id), linked_at = VALUES(linked_at)
+        """;
+        String deleteCode = "DELETE FROM pending_codes WHERE code = ?";
+
+        try (Connection connection = getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement selectPs = connection.prepareStatement(selectCode)) {
+                selectPs.setString(1, code);
+                try (ResultSet rs = selectPs.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new SQLException("Invalid code");
+                    }
+
+                    long expiresAt = rs.getLong("expires_at");
+                    if (expiresAt < Instant.now().getEpochSecond()) {
+                        throw new SQLException("Expired code");
+                    }
+
+                    String uuid = rs.getString("minecraft_uuid");
+
+                    try (PreparedStatement upsertPs = connection.prepareStatement(upsertLink);
+                         PreparedStatement deletePs = connection.prepareStatement(deleteCode)) {
+                        upsertPs.setString(1, uuid);
+                        upsertPs.setString(2, discordId);
+                        upsertPs.setLong(3, Instant.now().getEpochSecond());
+                        upsertPs.executeUpdate();
+
+                        deletePs.setString(1, code);
+                        deletePs.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException ex) {
+                connection.rollback();
+                throw ex;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        }
+    }
+
     public void deleteCode(String code) throws SQLException {
         String sql = "DELETE FROM pending_codes WHERE code = ?";
-        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+        try (Connection connection = getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, code);
             ps.executeUpdate();
@@ -112,7 +165,7 @@ public class DatabaseManager {
 
     public void cleanupExpiredCodes() {
         String sql = "DELETE FROM pending_codes WHERE expires_at < ?";
-        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+        try (Connection connection = getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setLong(1, Instant.now().getEpochSecond());
             ps.executeUpdate();

@@ -18,10 +18,12 @@ public class PlayerGateListener implements Listener {
     private final DatabaseManager databaseManager;
     private final LinkCodeService linkCodeService;
     private final Set<UUID> blockedPlayers = new HashSet<>();
+    private final long expirySeconds;
 
-    public PlayerGateListener(DatabaseManager databaseManager, LinkCodeService linkCodeService) {
+    public PlayerGateListener(DatabaseManager databaseManager, LinkCodeService linkCodeService, long expirySeconds) {
         this.databaseManager = databaseManager;
         this.linkCodeService = linkCodeService;
+        this.expirySeconds = Math.max(120, expirySeconds);
     }
 
     @EventHandler
@@ -100,8 +102,9 @@ public class PlayerGateListener implements Listener {
     }
 
     private void sendLinkMessage(Player player, String code) {
+        long minutes = Math.max(1, expirySeconds / 60);
         player.sendMessage(Component.text("§cYour account is not linked. You cannot move yet."));
         player.sendMessage(Component.text("§eDiscord command: /link " + code));
-        player.sendMessage(Component.text("§7Code expires in 10 minutes. Use /linkcode in-game to regenerate."));
+        player.sendMessage(Component.text("§7Code expires in " + minutes + " minutes. Use /linkcode in-game to regenerate."));
     }
 }

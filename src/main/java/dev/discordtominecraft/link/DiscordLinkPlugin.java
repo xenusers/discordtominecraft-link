@@ -2,10 +2,10 @@ package dev.discordtominecraft.link;
 
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
 import java.sql.SQLException;
 
 public class DiscordLinkPlugin extends JavaPlugin {
@@ -15,27 +15,42 @@ public class DiscordLinkPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        FileConfiguration config = getConfig();
 
-        File databaseFile = new File(getDataFolder(), "linking.db");
-        databaseManager = new DatabaseManager(databaseFile);
+        String host = config.getString("database.host", "127.0.0.1");
+        int port = config.getInt("database.port", 3306);
+        String name = config.getString("database.name", "minecraft");
+        String username = config.getString("database.username", "root");
+        String password = config.getString("database.password", "");
 
-        try {
-            databaseManager.init();
-        } catch (SQLException e) {
-            getLogger().severe("Failed to initialize link database: " + e.getMessage());
+        int codeLength = config.getInt("code.length", 6);
+        long codeExpirySeconds = config.getLong("code.expiry-seconds", 600L);
+
+        if (password.isBlank() || "REPLACE_WITH_PASSWORD".equals(password)) {
+            getLogger().severe("Database password is not configured in config.yml");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
-        LinkCodeService linkCodeService = new LinkCodeService(databaseManager);
-        playerGateListener = new PlayerGateListener(databaseManager, linkCodeService);
+        databaseManager = new DatabaseManager(host, port, name, username, password);
+
+        try {
+            databaseManager.init();
+        } catch (SQLException e) {
+            getLogger().severe("Failed to initialize MySQL link database: " + e.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        LinkCodeService linkCodeService = new LinkCodeService(databaseManager, codeLength, codeExpirySeconds);
+        playerGateListener = new PlayerGateListener(databaseManager, linkCodeService, codeExpirySeconds);
         getServer().getPluginManager().registerEvents(playerGateListener, this);
 
         getServer().getScheduler().runTaskTimerAsynchronously(this, databaseManager::cleanupExpiredCodes, 20L * 60, 20L * 60);
         getServer().getScheduler().runTaskTimer(this, () ->
                 getServer().getOnlinePlayers().forEach(playerGateListener::refreshStatus), 20L * 3, 20L * 5);
 
-        getLogger().info("DiscordLinkGate enabled.");
+        getLogger().info("DiscordLinkGate enabled with MySQL backend.");
     }
 
     @Override

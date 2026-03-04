@@ -1,63 +1,57 @@
-# Discord ↔ Minecraft Link Gate (Paper 1.21.x)
+# Discord ↔ Minecraft Link Gate (Paper 1.21.x + MySQL)
 
-This project has two parts that work together:
+This setup blocks player movement until they link Minecraft to Discord with `/link <code>`.
 
-1. A **Paper plugin** that blocks movement until a player links.
-2. A **Discord bot** with slash commands (`/link` and `/unlink`).
+## What changed
 
-The plugin and bot share the same SQLite database file so links persist.
+- Plugin now uses **MySQL** (not SQLite).
+- Discord bot now uses **MySQL** too.
+- Both point to the same DB so linking is instant and persistent.
 
-## 1) What this does
+## Your MySQL info
 
-1. Player joins Minecraft.
-2. If not linked yet, player gets a 6-character code and cannot move.
-3. Player runs `/link <code>` in Discord.
-4. Bot validates the code and saves the Discord↔Minecraft link.
-5. Plugin detects link and allows movement.
-6. Next login, player stays linked (no relogin needed).
+Use this in both plugin config and bot env vars:
 
----
+- Host: `db-mfl-02.apollopanel.com`
+- Port: `3306`
+- Database: `s213331_miencraft`
+- User: `u213331_VU8wTPmYSL`
+- Password: your provided password
 
-## 2) Prerequisites
-
-- Java 21 (for Paper 1.21.x).
-- A Paper 1.21.x server.
-- Python 3.10+ (for the Discord bot).
-- A Discord bot token from Discord Developer Portal.
-- Your bot invited to your server with `applications.commands` scope.
-
----
-
-## 3) Build the plugin jar
-
-From this repository root:
+## 1) Build plugin
 
 ```bash
 mvn -DskipTests package
 ```
 
-Output jar will be in `target/`.
+Then copy jar from `target/` into your Paper server `plugins/` folder.
 
-> If Maven download is blocked in your environment, build on your local machine/VPS with normal internet access.
+## 2) First server start
 
----
-
-## 4) Install on your Minecraft server
-
-1. Copy the plugin jar to your Paper server `plugins/` folder.
-2. Start the server once.
-3. Confirm plugin loads in console (`DiscordLinkGate enabled.`).
-4. Confirm DB file exists at:
+Start Paper once so plugin creates:
 
 ```text
-plugins/DiscordLinkGate/linking.db
+plugins/DiscordLinkGate/config.yml
 ```
 
----
+Open that file and set DB values. Example:
 
-## 5) Set up and run the Discord bot
+```yaml
+database:
+  host: "db-mfl-02.apollopanel.com"
+  port: 3306
+  name: "s213331_miencraft"
+  username: "u213331_VU8wTPmYSL"
+  password: "YOUR_DB_PASSWORD"
 
-From this repository:
+code:
+  expiry-seconds: 600
+  length: 6
+```
+
+Restart server after editing.
+
+## 3) Start Discord bot
 
 ```bash
 cd bot
@@ -66,71 +60,50 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Set env vars (IMPORTANT: `LINK_DB_PATH` must point to the same DB used by Paper):
+Set vars and run:
 
 ```bash
-export DISCORD_BOT_TOKEN="YOUR_BOT_TOKEN"
-export LINK_DB_PATH="/absolute/path/to/your/server/plugins/DiscordLinkGate/linking.db"
+export DISCORD_BOT_TOKEN="YOUR_TOKEN"
+export MYSQL_HOST="db-mfl-02.apollopanel.com"
+export MYSQL_PORT="3306"
+export MYSQL_DATABASE="s213331_miencraft"
+export MYSQL_USERNAME="u213331_VU8wTPmYSL"
+export MYSQL_PASSWORD="YOUR_DB_PASSWORD"
 python link_bot.py
 ```
 
-When bot starts, it syncs slash commands using `bot.tree.sync()`.
+> If you really want to hardcode token, edit `bot/link_bot.py` and assign `BOT_TOKEN = "..."` directly.
 
----
+## 4) Invite bot correctly
 
-## 6) Test flow (end-to-end)
+Invite URL must include scopes:
 
-1. Join Minecraft with an unlinked account.
-2. Try moving → movement should be blocked.
-3. You should see an in-game code message.
-4. In Discord, run:
+- `bot`
+- `applications.commands`
 
-```text
-/link ABC123
-```
+And grant normal send/read permissions where you will use slash commands.
 
-(Use your real code.)
+## 5) Test everything
 
-5. You should get a Discord success message.
-6. Back in Minecraft, movement should unlock within a few seconds.
-7. Disconnect/rejoin Minecraft → should still be linked and able to move.
+1. Join Minecraft with unlinked account.
+2. You should be unable to move.
+3. Minecraft chat shows code (example `AB12CD`).
+4. In Discord run `/link AB12CD`.
+5. Should return success.
+6. Move in Minecraft again: now unlocked.
+7. Rejoin server: should still be linked.
 
-If code expires, use `/linkcode` in-game to generate a new one.
-
----
-
-## 7) Commands
+## Commands
 
 ### Minecraft
-
-- `/linkcode` → regenerate a fresh code.
+- `/linkcode` -> regenerate code
 
 ### Discord
+- `/link <code>` -> link your Discord
+- `/unlink` -> remove all your links
 
-- `/link <code>` → link current Discord user.
-- `/unlink` → remove all links for current Discord user.
+## Troubleshooting
 
----
-
-## 8) Troubleshooting checklist
-
-- Bot commands not showing?
-  - Re-invite bot with `applications.commands` scope.
-  - Confirm bot is online.
-  - Wait a minute for global command propagation.
-
-- Link says invalid code?
-  - Ensure you used the current code shown in-game.
-  - Code expires after 10 minutes.
-  - Ensure bot points to same `linking.db` file as the Minecraft server.
-
-- Still blocked after linking?
-  - Wait up to ~5 seconds (plugin refresh task).
-  - Check server logs for plugin/DB errors.
-  - Verify DB path is identical for plugin and bot.
-
----
-
-## 9) Version note
-
-- Built for Paper API `1.21.1` and intended for 1.21.x servers.
+- Slash commands missing: ensure bot has `applications.commands`, wait ~1 minute.
+- "Invalid code": wrong/expired code (default 10 min).
+- Still blocked after linking: check Paper console for DB errors and confirm plugin+bot use the same MySQL DB.

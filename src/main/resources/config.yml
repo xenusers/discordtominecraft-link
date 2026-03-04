@@ -1,0 +1,10 @@
+database:
+  host: "db-mfl-02.apollopanel.com"
+  port: 3306
+  name: "s213331_miencraft"
+  username: "u213331_VU8wTPmYSL"
+  password: "REPLACE_WITH_PASSWORD"
+
+code:
+  expiry-seconds: 600
+  length: 6

@@ -8,25 +8,27 @@ import java.util.UUID;
 public class LinkCodeService {
     private static final String ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final int CODE_LENGTH = 6;
-    private static final long CODE_EXPIRY_SECONDS = 10 * 60;
 
     private final DatabaseManager databaseManager;
+    private final int codeLength;
+    private final long codeExpirySeconds;
 
-    public LinkCodeService(DatabaseManager databaseManager) {
+    public LinkCodeService(DatabaseManager databaseManager, int codeLength, long codeExpirySeconds) {
         this.databaseManager = databaseManager;
+        this.codeLength = Math.max(4, codeLength);
+        this.codeExpirySeconds = Math.max(120, codeExpirySeconds);
     }
 
     public String generateAndStore(UUID uuid) throws SQLException {
         String code = generateCode();
-        long expiresAt = Instant.now().getEpochSecond() + CODE_EXPIRY_SECONDS;
+        long expiresAt = Instant.now().getEpochSecond() + codeExpirySeconds;
         databaseManager.saveCode(code, uuid, expiresAt);
         return code;
     }
 
     private String generateCode() {
-        StringBuilder code = new StringBuilder(CODE_LENGTH);
-        for (int i = 0; i < CODE_LENGTH; i++) {
+        StringBuilder code = new StringBuilder(codeLength);
+        for (int i = 0; i < codeLength; i++) {
             code.append(ALPHABET.charAt(RANDOM.nextInt(ALPHABET.length())));
         }
         return code.toString();
