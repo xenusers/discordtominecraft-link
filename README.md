@@ -4,8 +4,8 @@ This setup blocks player movement until they link Minecraft to Discord with `/li
 
 ## What changed
 
-- Plugin now uses **MySQL** (not SQLite).
-- Discord bot now uses **MySQL** too.
+- Plugin uses **MySQL**.
+- Discord bot uses **MySQL**.
 - Both point to the same DB so linking is instant and persistent.
 
 ## Your MySQL info
@@ -18,15 +18,53 @@ Use this in both plugin config and bot env vars:
 - User: `u213331_VU8wTPmYSL`
 - Password: your provided password
 
-## 1) Build plugin
+---
 
-```bash
+## Windows quick fix for your exact errors
+
+You got:
+
+- `bash : The term 'bash' is not recognized`
+- `mvn : The term 'mvn' is not recognized`
+
+That means on Windows:
+
+1. **You do not need `bash` at all** for this project.
+2. Maven is not installed (or not in PATH).
+
+### Install Java 21 and Maven (PowerShell as Administrator)
+
+```powershell
+winget install EclipseAdoptium.Temurin.21.JDK
+winget install Apache.Maven
+```
+
+Close and reopen PowerShell, then verify:
+
+```powershell
+java -version
+mvn -version
+```
+
+If `mvn` still fails, reboot once or add Maven `bin` folder to PATH manually.
+
+---
+
+## Build plugin (PowerShell, Windows)
+
+Run from repo folder:
+
+```powershell
 mvn -DskipTests package
 ```
 
-Then copy jar from `target/` into your Paper server `plugins/` folder.
+Jar will be in `target/`.
 
-## 2) First server start
+Copy jar into your Paper server `plugins/` folder.
+
+---
+
+## First server start
 
 Start Paper once so plugin creates:
 
@@ -34,7 +72,7 @@ Start Paper once so plugin creates:
 plugins/DiscordLinkGate/config.yml
 ```
 
-Open that file and set DB values. Example:
+Edit that file:
 
 ```yaml
 database:
@@ -49,49 +87,46 @@ code:
   length: 6
 ```
 
-Restart server after editing.
+Restart server.
 
-## 3) Start Discord bot
+---
 
-```bash
+## Run Discord bot on Windows (PowerShell)
+
+```powershell
 cd bot
-python -m venv .venv
-source .venv/bin/activate
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Set vars and run:
+Set env vars for this session:
 
-```bash
-export DISCORD_BOT_TOKEN="YOUR_TOKEN"
-export MYSQL_HOST="db-mfl-02.apollopanel.com"
-export MYSQL_PORT="3306"
-export MYSQL_DATABASE="s213331_miencraft"
-export MYSQL_USERNAME="u213331_VU8wTPmYSL"
-export MYSQL_PASSWORD="YOUR_DB_PASSWORD"
-python link_bot.py
+```powershell
+$env:DISCORD_BOT_TOKEN="YOUR_TOKEN"
+$env:MYSQL_HOST="db-mfl-02.apollopanel.com"
+$env:MYSQL_PORT="3306"
+$env:MYSQL_DATABASE="s213331_miencraft"
+$env:MYSQL_USERNAME="u213331_VU8wTPmYSL"
+$env:MYSQL_PASSWORD="YOUR_DB_PASSWORD"
+python .\link_bot.py
 ```
 
-> If you really want to hardcode token, edit `bot/link_bot.py` and assign `BOT_TOKEN = "..."` directly.
+> You said token can be hardcoded. It works, but env var is safer.
 
-## 4) Invite bot correctly
+---
 
-Invite URL must include scopes:
-
-- `bot`
-- `applications.commands`
-
-And grant normal send/read permissions where you will use slash commands.
-
-## 5) Test everything
+## Test everything
 
 1. Join Minecraft with unlinked account.
-2. You should be unable to move.
-3. Minecraft chat shows code (example `AB12CD`).
-4. In Discord run `/link AB12CD`.
-5. Should return success.
-6. Move in Minecraft again: now unlocked.
-7. Rejoin server: should still be linked.
+2. Movement should be blocked.
+3. You get a code in chat.
+4. In Discord run `/link <code>`.
+5. Bot says linked.
+6. Movement unlocks in Minecraft.
+7. Rejoin server: still linked.
+
+---
 
 ## Commands
 
@@ -102,8 +137,18 @@ And grant normal send/read permissions where you will use slash commands.
 - `/link <code>` -> link your Discord
 - `/unlink` -> remove all your links
 
+---
+
 ## Troubleshooting
 
-- Slash commands missing: ensure bot has `applications.commands`, wait ~1 minute.
-- "Invalid code": wrong/expired code (default 10 min).
-- Still blocked after linking: check Paper console for DB errors and confirm plugin+bot use the same MySQL DB.
+- **`bash` not recognized**: ignore bash, use PowerShell commands above.
+- **`mvn` not recognized**: install Maven with winget and reopen terminal.
+- Slash commands missing: ensure bot invited with `applications.commands`, wait ~1 minute.
+- "Invalid code": wrong/expired code (default 10 minutes).
+- Still blocked after linking: check Paper console for DB errors and confirm plugin+bot use same MySQL DB.
+
+---
+
+## Security note (important)
+
+If you shared your DB password or Discord bot token publicly, rotate both immediately.
