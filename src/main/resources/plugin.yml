@@ -1,0 +1,10 @@
+name: DiscordLinkGate
+version: 1.0.0
+main: dev.discordtominecraft.link.DiscordLinkPlugin
+api-version: '1.21'
+author: you
+description: Requires Discord account linking before player movement.
+commands:
+  linkcode:
+    description: Regenerate your Discord link code.
+    usage: /linkcode
