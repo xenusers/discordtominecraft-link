@@ -1,7 +1,6 @@
 package dev.discordtominecraft.link;
 
 import java.security.SecureRandom;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -19,7 +18,7 @@ public class LinkCodeService {
         this.codeExpirySeconds = Math.max(120, codeExpirySeconds);
     }
 
-    public String generateAndStore(UUID uuid) throws SQLException {
+    public String generateAndStore(UUID uuid) {
         String code = generateCode();
         long expiresAt = Instant.now().getEpochSecond() + codeExpirySeconds;
         databaseManager.saveCode(code, uuid, expiresAt);

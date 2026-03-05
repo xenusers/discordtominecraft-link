@@ -1,175 +1,130 @@
 package dev.discordtominecraft.link;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 public class DatabaseManager {
-    private final String jdbcUrl;
-    private final String username;
-    private final String password;
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private final Path storagePath;
 
-    public DatabaseManager(String host, int port, String databaseName, String username, String password) {
-        this.jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/" + databaseName
-                + "?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true&serverTimezone=UTC";
-        this.username = username;
-        this.password = password;
+    public DatabaseManager(Path storagePath) {
+        this.storagePath = storagePath;
     }
 
-    private Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl, username, password);
-    }
-
-    public void init() throws SQLException {
-        try (Connection connection = getConnection();
-             Statement stmt = connection.createStatement()) {
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS links (
-                    minecraft_uuid VARCHAR(36) PRIMARY KEY,
-                    discord_id VARCHAR(32) NOT NULL,
-                    linked_at BIGINT NOT NULL
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """);
-
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS pending_codes (
-                    code VARCHAR(16) PRIMARY KEY,
-                    minecraft_uuid VARCHAR(36) NOT NULL,
-                    expires_at BIGINT NOT NULL,
-                    INDEX idx_pending_uuid (minecraft_uuid)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """);
+    public synchronized void init() throws IOException {
+        if (storagePath.getParent() != null) {
+            Files.createDirectories(storagePath.getParent());
+        }
+        if (!Files.exists(storagePath)) {
+            writeStore(new DataStore());
         }
     }
 
-    public boolean isLinked(UUID uuid) {
-        String sql = "SELECT 1 FROM links WHERE minecraft_uuid = ? LIMIT 1";
-        try (Connection connection = getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, uuid.toString());
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
+    public synchronized boolean isLinked(UUID uuid) {
+        DataStore store = readStore();
+        return store.links.containsKey(uuid.toString());
+    }
+
+    public synchronized Optional<String> getPendingCode(UUID uuid) {
+        DataStore store = readStore();
+        String uuidString = uuid.toString();
+
+        for (Map.Entry<String, PendingCodeRecord> entry : store.pending_codes.entrySet()) {
+            PendingCodeRecord record = entry.getValue();
+            if (!uuidString.equals(record.minecraft_uuid)) {
+                continue;
             }
-        } catch (SQLException e) {
-            return false;
-        }
-    }
-
-    public Optional<String> getPendingCode(UUID uuid) {
-        String sql = "SELECT code, expires_at FROM pending_codes WHERE minecraft_uuid = ? LIMIT 1";
-        try (Connection connection = getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, uuid.toString());
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) {
-                    return Optional.empty();
-                }
-
-                long expiresAt = rs.getLong("expires_at");
-                if (expiresAt < Instant.now().getEpochSecond()) {
-                    deleteCode(rs.getString("code"));
-                    return Optional.empty();
-                }
-                return Optional.of(rs.getString("code"));
+            if (record.expires_at < Instant.now().getEpochSecond()) {
+                store.pending_codes.remove(entry.getKey());
+                writeStore(store);
+                return Optional.empty();
             }
-        } catch (SQLException e) {
-            return Optional.empty();
+            return Optional.of(entry.getKey());
         }
+
+        return Optional.empty();
     }
 
-    public void saveCode(String code, UUID uuid, long expiresAt) throws SQLException {
-        String deleteOld = "DELETE FROM pending_codes WHERE minecraft_uuid = ?";
-        String insert = "INSERT INTO pending_codes(code, minecraft_uuid, expires_at) VALUES (?, ?, ?)";
+    public synchronized void saveCode(String code, UUID uuid, long expiresAt) {
+        DataStore store = readStore();
+        String uuidString = uuid.toString();
+        store.pending_codes.entrySet().removeIf(e -> uuidString.equals(e.getValue().minecraft_uuid));
 
-        try (Connection connection = getConnection()) {
-            connection.setAutoCommit(false);
-            try (PreparedStatement deletePs = connection.prepareStatement(deleteOld);
-                 PreparedStatement insertPs = connection.prepareStatement(insert)) {
-                deletePs.setString(1, uuid.toString());
-                deletePs.executeUpdate();
+        PendingCodeRecord record = new PendingCodeRecord();
+        record.minecraft_uuid = uuidString;
+        record.expires_at = expiresAt;
+        store.pending_codes.put(code, record);
+        writeStore(store);
+    }
 
-                insertPs.setString(1, code);
-                insertPs.setString(2, uuid.toString());
-                insertPs.setLong(3, expiresAt);
-                insertPs.executeUpdate();
-                connection.commit();
-            } catch (SQLException ex) {
-                connection.rollback();
-                throw ex;
-            } finally {
-                connection.setAutoCommit(true);
+    public synchronized void deleteCode(String code) {
+        DataStore store = readStore();
+        store.pending_codes.remove(code);
+        writeStore(store);
+    }
+
+    public synchronized void cleanupExpiredCodes() {
+        DataStore store = readStore();
+        long now = Instant.now().getEpochSecond();
+        store.pending_codes.entrySet().removeIf(e -> e.getValue().expires_at < now);
+        writeStore(store);
+    }
+
+    private DataStore readStore() {
+        try {
+            if (!Files.exists(storagePath)) {
+                return new DataStore();
             }
-        }
-    }
-
-    public void linkDiscordAccount(String code, String discordId) throws SQLException {
-        String selectCode = "SELECT minecraft_uuid, expires_at FROM pending_codes WHERE code = ?";
-        String upsertLink = """
-            INSERT INTO links(minecraft_uuid, discord_id, linked_at)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE discord_id = VALUES(discord_id), linked_at = VALUES(linked_at)
-        """;
-        String deleteCode = "DELETE FROM pending_codes WHERE code = ?";
-
-        try (Connection connection = getConnection()) {
-            connection.setAutoCommit(false);
-            try (PreparedStatement selectPs = connection.prepareStatement(selectCode)) {
-                selectPs.setString(1, code);
-                try (ResultSet rs = selectPs.executeQuery()) {
-                    if (!rs.next()) {
-                        throw new SQLException("Invalid code");
-                    }
-
-                    long expiresAt = rs.getLong("expires_at");
-                    if (expiresAt < Instant.now().getEpochSecond()) {
-                        throw new SQLException("Expired code");
-                    }
-
-                    String uuid = rs.getString("minecraft_uuid");
-
-                    try (PreparedStatement upsertPs = connection.prepareStatement(upsertLink);
-                         PreparedStatement deletePs = connection.prepareStatement(deleteCode)) {
-                        upsertPs.setString(1, uuid);
-                        upsertPs.setString(2, discordId);
-                        upsertPs.setLong(3, Instant.now().getEpochSecond());
-                        upsertPs.executeUpdate();
-
-                        deletePs.setString(1, code);
-                        deletePs.executeUpdate();
-                    }
-                }
-                connection.commit();
-            } catch (SQLException ex) {
-                connection.rollback();
-                throw ex;
-            } finally {
-                connection.setAutoCommit(true);
+            String json = Files.readString(storagePath, StandardCharsets.UTF_8);
+            if (json.isBlank()) {
+                return new DataStore();
             }
+            DataStore parsed = gson.fromJson(json, DataStore.class);
+            return parsed == null ? new DataStore() : parsed.withDefaults();
+        } catch (Exception e) {
+            return new DataStore();
         }
     }
 
-    public void deleteCode(String code) throws SQLException {
-        String sql = "DELETE FROM pending_codes WHERE code = ?";
-        try (Connection connection = getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, code);
-            ps.executeUpdate();
+    private void writeStore(DataStore store) {
+        try {
+            Files.writeString(storagePath, gson.toJson(store.withDefaults()), StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
         }
     }
 
-    public void cleanupExpiredCodes() {
-        String sql = "DELETE FROM pending_codes WHERE expires_at < ?";
-        try (Connection connection = getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setLong(1, Instant.now().getEpochSecond());
-            ps.executeUpdate();
-        } catch (SQLException ignored) {
+    private static class DataStore {
+        Map<String, LinkRecord> links = new HashMap<>();
+        Map<String, PendingCodeRecord> pending_codes = new HashMap<>();
+
+        DataStore withDefaults() {
+            if (links == null) {
+                links = new HashMap<>();
+            }
+            if (pending_codes == null) {
+                pending_codes = new HashMap<>();
+            }
+            return this;
         }
+    }
+
+    private static class LinkRecord {
+        String discord_id;
+        long linked_at;
+    }
+
+    private static class PendingCodeRecord {
+        String minecraft_uuid;
+        long expires_at;
     }
 }

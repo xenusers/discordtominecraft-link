@@ -6,7 +6,8 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.sql.SQLException;
+import java.io.IOException;
+import java.nio.file.Path;
 
 public class DiscordLinkPlugin extends JavaPlugin {
     private DatabaseManager databaseManager;
@@ -17,27 +18,21 @@ public class DiscordLinkPlugin extends JavaPlugin {
         saveDefaultConfig();
         FileConfiguration config = getConfig();
 
-        String host = config.getString("database.host", "127.0.0.1");
-        int port = config.getInt("database.port", 3306);
-        String name = config.getString("database.name", "minecraft");
-        String username = config.getString("database.username", "root");
-        String password = config.getString("database.password", "");
+        String configuredStorage = config.getString("storage.file", "logins.json");
+        Path storagePath = Path.of(configuredStorage);
+        if (!storagePath.isAbsolute()) {
+            storagePath = getDataFolder().toPath().resolve(configuredStorage);
+        }
 
         int codeLength = config.getInt("code.length", 6);
         long codeExpirySeconds = config.getLong("code.expiry-seconds", 600L);
 
-        if (password.isBlank() || "REPLACE_WITH_PASSWORD".equals(password)) {
-            getLogger().severe("Database password is not configured in config.yml");
-            getServer().getPluginManager().disablePlugin(this);
-            return;
-        }
-
-        databaseManager = new DatabaseManager(host, port, name, username, password);
+        databaseManager = new DatabaseManager(storagePath);
 
         try {
             databaseManager.init();
-        } catch (SQLException e) {
-            getLogger().severe("Failed to initialize MySQL link database: " + e.getMessage());
+        } catch (IOException e) {
+            getLogger().severe("Failed to initialize login storage: " + e.getMessage());
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -50,7 +45,7 @@ public class DiscordLinkPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, () ->
                 getServer().getOnlinePlayers().forEach(playerGateListener::refreshStatus), 20L * 3, 20L * 5);
 
-        getLogger().info("DiscordLinkGate enabled with MySQL backend.");
+        getLogger().info("DiscordLinkGate enabled with JSON storage at: " + storagePath);
     }
 
     @Override

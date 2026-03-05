@@ -1,130 +1,98 @@
-# Discord ↔ Minecraft Link Gate (Paper 1.21.x + MySQL)
+# Discord ↔ Minecraft Link Gate (Paper 1.21.x + `logins.json`)
 
-This setup blocks player movement until they link Minecraft to Discord with `/link <code>`.
+Your MySQL error means the hosting DB is rejecting your server host. This build removes DB dependency and uses a shared JSON file instead.
 
 ## What changed
 
-- Plugin uses **MySQL**.
-- Discord bot uses **MySQL**.
-- Both point to the same DB so linking is instant and persistent.
+- Plugin now stores links + pending codes in `logins.json`.
+- Discord bot also reads/writes that same `logins.json`.
+- No MySQL required.
 
-## Your MySQL info
+## Fix for the error you posted
 
-Use this in both plugin config and bot env vars:
+Error was:
 
-- Host: `db-mfl-02.apollopanel.com`
-- Port: `3306`
-- Database: `s213331_miencraft`
-- User: `u213331_VU8wTPmYSL`
-- Password: your provided password
+```text
+Access denied for user ...
+```
+
+That is a database permission/network issue. With this JSON setup, that issue is gone.
 
 ---
 
-## Windows quick fix for your exact errors
+## 1) Build plugin (Windows PowerShell)
 
-You got:
-
-- `bash : The term 'bash' is not recognized`
-- `mvn : The term 'mvn' is not recognized`
-
-That means on Windows:
-
-1. **You do not need `bash` at all** for this project.
-2. Maven is not installed (or not in PATH).
-
-### Install Java 21 and Maven (PowerShell as Administrator)
+Install Java + Maven if needed:
 
 ```powershell
 winget install EclipseAdoptium.Temurin.21.JDK
 winget install Apache.Maven
 ```
 
-Close and reopen PowerShell, then verify:
-
-```powershell
-java -version
-mvn -version
-```
-
-If `mvn` still fails, reboot once or add Maven `bin` folder to PATH manually.
-
----
-
-## Build plugin (PowerShell, Windows)
-
-Run from repo folder:
+Then in repo root:
 
 ```powershell
 mvn -DskipTests package
 ```
 
-Jar will be in `target/`.
-
-Copy jar into your Paper server `plugins/` folder.
+Copy plugin jar from `target/` into your Paper server `plugins/` folder.
 
 ---
 
-## First server start
+## 2) Configure plugin storage path
 
-Start Paper once so plugin creates:
+Start server once, then edit:
 
 ```text
 plugins/DiscordLinkGate/config.yml
 ```
 
-Edit that file:
+Example:
 
 ```yaml
-database:
-  host: "db-mfl-02.apollopanel.com"
-  port: 3306
-  name: "s213331_miencraft"
-  username: "u213331_VU8wTPmYSL"
-  password: "YOUR_DB_PASSWORD"
+storage:
+  file: "logins.json"
 
 code:
   expiry-seconds: 600
   length: 6
 ```
 
-Restart server.
+If bot runs on another machine, use an **absolute shared path** (network mount/sync path).
 
 ---
 
-## Run Discord bot on Windows (PowerShell)
+## 3) Run bot with same `logins.json`
+
+In `bot/`:
 
 ```powershell
-cd bot
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Set env vars for this session:
+Run bot with path to the exact same JSON file:
 
 ```powershell
 $env:DISCORD_BOT_TOKEN="YOUR_TOKEN"
-$env:MYSQL_HOST="db-mfl-02.apollopanel.com"
-$env:MYSQL_PORT="3306"
-$env:MYSQL_DATABASE="s213331_miencraft"
-$env:MYSQL_USERNAME="u213331_VU8wTPmYSL"
-$env:MYSQL_PASSWORD="YOUR_DB_PASSWORD"
+$env:LOGINS_FILE="C:\path\to\server\plugins\DiscordLinkGate\logins.json"
 python .\link_bot.py
 ```
 
-> You said token can be hardcoded. It works, but env var is safer.
+> The plugin and bot must point to the same file, or linking won't sync.
 
 ---
 
-## Test everything
+## 4) Test flow
 
-1. Join Minecraft with unlinked account.
+1. Join Minecraft (unlinked account).
 2. Movement should be blocked.
 3. You get a code in chat.
-4. In Discord run `/link <code>`.
-5. Bot says linked.
+4. In Discord: `/link <code>`.
+5. Bot replies linked.
 6. Movement unlocks in Minecraft.
-7. Rejoin server: still linked.
+7. Rejoin: still linked (persisted in `logins.json`).
 
 ---
 
@@ -135,20 +103,33 @@ python .\link_bot.py
 
 ### Discord
 - `/link <code>` -> link your Discord
-- `/unlink` -> remove all your links
+- `/unlink` -> remove your linked accounts
+
+---
+
+## `logins.json` format
+
+```json
+{
+  "links": {
+    "minecraft-uuid": {
+      "discord_id": "1234567890",
+      "linked_at": 1737000000
+    }
+  },
+  "pending_codes": {
+    "ABC123": {
+      "minecraft_uuid": "minecraft-uuid",
+      "expires_at": 1737000600
+    }
+  }
+}
+```
 
 ---
 
 ## Troubleshooting
 
-- **`bash` not recognized**: ignore bash, use PowerShell commands above.
-- **`mvn` not recognized**: install Maven with winget and reopen terminal.
-- Slash commands missing: ensure bot invited with `applications.commands`, wait ~1 minute.
-- "Invalid code": wrong/expired code (default 10 minutes).
-- Still blocked after linking: check Paper console for DB errors and confirm plugin+bot use same MySQL DB.
-
----
-
-## Security note (important)
-
-If you shared your DB password or Discord bot token publicly, rotate both immediately.
+- `mvn` not recognized: reopen PowerShell after install, run `mvn -version`.
+- Slash commands missing: invite bot with `applications.commands` scope, wait ~1 minute.
+- Invalid code: code expired or bot is not using same `LOGINS_FILE` path as plugin.

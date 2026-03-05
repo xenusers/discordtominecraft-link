@@ -8,7 +8,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 
-import java.sql.SQLException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -79,12 +78,8 @@ public class PlayerGateListener implements Listener {
             return;
         }
 
-        try {
-            String code = linkCodeService.generateAndStore(player.getUniqueId());
-            sendLinkMessage(player, code);
-        } catch (SQLException e) {
-            player.sendMessage(Component.text("§cCould not generate a new code right now."));
-        }
+        String code = linkCodeService.generateAndStore(player.getUniqueId());
+        sendLinkMessage(player, code);
     }
 
     private String getOrCreateCode(Player player) {
@@ -93,12 +88,7 @@ public class PlayerGateListener implements Listener {
             return existing.get();
         }
 
-        try {
-            return linkCodeService.generateAndStore(player.getUniqueId());
-        } catch (SQLException e) {
-            player.sendMessage(Component.text("§cCould not create your Discord link code."));
-            return "ERROR";
-        }
+        return linkCodeService.generateAndStore(player.getUniqueId());
     }
 
     private void sendLinkMessage(Player player, String code) {

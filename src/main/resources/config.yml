@@ -1,9 +1,6 @@
-database:
-  host: "db-mfl-02.apollopanel.com"
-  port: 3306
-  name: "s213331_miencraft"
-  username: "u213331_VU8wTPmYSL"
-  password: "REPLACE_WITH_PASSWORD"
+storage:
+  # Use an absolute path if bot runs elsewhere.
+  file: "logins.json"
 
 code:
   expiry-seconds: 600
