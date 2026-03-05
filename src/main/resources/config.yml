@@ -1,0 +1,7 @@
+storage:
+  # Use an absolute path if bot runs elsewhere.
+  file: "logins.json"
+
+code:
+  expiry-seconds: 600
+  length: 6
