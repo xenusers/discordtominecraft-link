@@ -1,0 +1,11 @@
+database:
+  host: "sql3.freesqldatabase.com"
+  port: 3306
+  name: "sql3818940"
+  username: "sql3818940"
+  password: "CHANGE_ME"
+  ssl: true
+
+code:
+  expiry-seconds: 600
+  length: 6
