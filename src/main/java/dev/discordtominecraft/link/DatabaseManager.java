@@ -8,23 +8,64 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.UUID;
 
 public class DatabaseManager {
-    private final String jdbcUrl;
+    private final String jdbcBaseUrl;
     private final String username;
     private final String password;
+    private final boolean sslEnabled;
 
     public DatabaseManager(String host, int port, String databaseName, String username, String password, boolean sslEnabled) {
-        String sslMode = sslEnabled ? "REQUIRED" : "DISABLED";
-        this.jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/" + databaseName
-                + "?sslMode=" + sslMode + "&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+        this.jdbcBaseUrl = "jdbc:mysql://" + host + ":" + port + "/" + databaseName;
         this.username = username;
         this.password = password;
+        this.sslEnabled = sslEnabled;
+
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+        } catch (ClassNotFoundException ignored) {
+        }
     }
 
     private Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl, username, password);
+        SQLException first = null;
+
+        try {
+            return DriverManager.getConnection(buildUrlWithSslMode(sslEnabled ? "REQUIRED" : "DISABLED"), buildProps(false));
+        } catch (SQLException e) {
+            first = e;
+        }
+
+        if (sslEnabled) {
+            try {
+                return DriverManager.getConnection(buildUrlWithSslMode("REQUIRED"), buildProps(true));
+            } catch (SQLException ignored) {
+                // fall through and throw original failure for clearer root-cause message
+            }
+        }
+
+        throw first;
+    }
+
+    private String buildUrlWithSslMode(String sslMode) {
+        return jdbcBaseUrl + "?sslMode=" + sslMode + "&allowPublicKeyRetrieval=true&serverTimezone=UTC&connectTimeout=10000&socketTimeout=10000";
+    }
+
+    private Properties buildProps(boolean legacySslFallback) {
+        Properties props = new Properties();
+        props.setProperty("user", username);
+        props.setProperty("password", password);
+
+        if (legacySslFallback) {
+            props.setProperty("useSSL", "true");
+            props.setProperty("requireSSL", "true");
+            props.setProperty("verifyServerCertificate", "false");
+            props.setProperty("enabledTLSProtocols", "TLSv1.2,TLSv1.3");
+        }
+
+        return props;
     }
 
     public void init() throws SQLException {

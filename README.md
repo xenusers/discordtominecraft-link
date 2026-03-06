@@ -71,3 +71,8 @@ Copy jar from `target/` to your server `plugins/` folder.
 - Confirm password is the actual email password value.
 - Confirm your host/IP is allowed in your DB panel.
 - Keep SSL enabled (`database.ssl: true`, `MYSQL_SSL=true`).
+
+
+## Important if log says `[DiscordLinkTest]` instead of `[DiscordLinkGate]`
+
+You are likely running an older/different jar. Delete old plugin jar(s) and keep only the latest one from this repo, then restart. Also edit the config for the plugin name that is actually loading.
