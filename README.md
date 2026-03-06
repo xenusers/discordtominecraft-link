@@ -1,6 +1,6 @@
 # Discord ↔ Minecraft Link Gate (Paper 1.21.x + MySQL)
 
-Yes — same as your old MySQL setup, but now make sure SSL is enabled because your host requires it.
+Yes — same as your old MySQL setup, but SSL must be enabled for this host.
 
 ## Your database values
 
@@ -8,17 +8,14 @@ Yes — same as your old MySQL setup, but now make sure SSL is enabled because y
 - Port: `3306`
 - Database: `sql3818940`
 - Username: `sql3818940`
-- Password: `GJxGGMib41`
+- Password: **the real password from your email** (not the text `Check your emails`)
 
-## Fix for this error
+## Why it still failed
 
-If you get:
+Your log means the plugin tried a non-SSL connection. This update now:
 
-```text
-SSL Connection required, but not provided by server
-```
-
-set `database.ssl: true` in plugin config and `MYSQL_SSL=true` for the bot.
+- Uses MySQL `sslMode=REQUIRED` when SSL is enabled.
+- Automatically retries with SSL if config had `database.ssl: false` and DB says SSL is required.
 
 ## 1) Plugin config (Paper)
 
@@ -30,7 +27,7 @@ database:
   port: 3306
   name: "sql3818940"
   username: "sql3818940"
-  password: "GJxGGMib41"
+  password: "REAL_PASSWORD_FROM_EMAIL"
   ssl: true
 
 code:
@@ -48,7 +45,7 @@ $env:MYSQL_HOST="sql3.freesqldatabase.com"
 $env:MYSQL_PORT="3306"
 $env:MYSQL_DATABASE="sql3818940"
 $env:MYSQL_USERNAME="sql3818940"
-$env:MYSQL_PASSWORD="GJxGGMib41"
+$env:MYSQL_PASSWORD="REAL_PASSWORD_FROM_EMAIL"
 $env:MYSQL_SSL="true"
 python .\link_bot.py
 ```
@@ -69,8 +66,8 @@ Copy jar from `target/` to your server `plugins/` folder.
 4. Movement unlocks.
 5. Rejoin: remains linked.
 
-## If access still fails
+## If it still fails
 
-- Confirm DB host/user/pass are correct.
-- Confirm your server host/IP is allowed by DB provider remote access.
+- Confirm password is the actual email password value.
+- Confirm your host/IP is allowed in your DB panel.
 - Keep SSL enabled (`database.ssl: true`, `MYSQL_SSL=true`).

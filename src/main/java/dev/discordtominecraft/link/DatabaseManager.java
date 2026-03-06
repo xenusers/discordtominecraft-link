@@ -16,11 +16,9 @@ public class DatabaseManager {
     private final String password;
 
     public DatabaseManager(String host, int port, String databaseName, String username, String password, boolean sslEnabled) {
-        String sslParams = sslEnabled
-                ? "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-                : "useSSL=false";
+        String sslMode = sslEnabled ? "REQUIRED" : "DISABLED";
         this.jdbcUrl = "jdbc:mysql://" + host + ":" + port + "/" + databaseName
-                + "?" + sslParams + "&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+                + "?sslMode=" + sslMode + "&allowPublicKeyRetrieval=true&serverTimezone=UTC";
         this.username = username;
         this.password = password;
     }

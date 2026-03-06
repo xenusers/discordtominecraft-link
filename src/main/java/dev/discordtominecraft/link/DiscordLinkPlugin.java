@@ -38,9 +38,22 @@ public class DiscordLinkPlugin extends JavaPlugin {
         try {
             databaseManager.init();
         } catch (SQLException e) {
-            getLogger().severe("Failed to initialize MySQL link database: " + e.getMessage() + " (try database.ssl: true)");
-            getServer().getPluginManager().disablePlugin(this);
-            return;
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            if (!ssl && msg.toLowerCase().contains("ssl connection required")) {
+                getLogger().warning("DB requires SSL; retrying with SSL enabled automatically.");
+                databaseManager = new DatabaseManager(host, port, name, username, password, true);
+                try {
+                    databaseManager.init();
+                } catch (SQLException second) {
+                    getLogger().severe("Failed to initialize MySQL link database: " + second.getMessage());
+                    getServer().getPluginManager().disablePlugin(this);
+                    return;
+                }
+            } else {
+                getLogger().severe("Failed to initialize MySQL link database: " + e.getMessage() + " (database.ssl currently " + ssl + ")");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
         }
 
         LinkCodeService linkCodeService = new LinkCodeService(databaseManager, codeLength, codeExpirySeconds);
